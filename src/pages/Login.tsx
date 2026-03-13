@@ -18,6 +18,9 @@ export default function Login() {
     setError('');
     setMessage('');
     try {
+      if (!supabase) {
+        throw new Error('Supabase is not configured. Please add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your environment variables.');
+      }
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       navigate('/');

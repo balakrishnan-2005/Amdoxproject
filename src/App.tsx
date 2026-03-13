@@ -36,8 +36,22 @@ export default function App() {
   const { setAuth, setInitialized } = useAuthStore();
 
   useEffect(() => {
+    if (!supabase) {
+      setInitialized(true);
+      return;
+    }
+
     // Check active sessions and subscribe to auth changes
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error('Auth session error:', error.message);
+        // If the refresh token is invalid, clear the session
+        if (error.message.includes('Refresh Token') || error.message.includes('token')) {
+          supabase.auth.signOut();
+          setAuth(null, null);
+        }
+      }
+      
       if (session) {
         const user = session.user;
         setAuth({
@@ -48,6 +62,8 @@ export default function App() {
           avatar: user.user_metadata.avatar
         }, session.access_token);
       }
+      setInitialized(true);
+    }).catch(() => {
       setInitialized(true);
     });
 

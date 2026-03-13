@@ -1,7 +1,6 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
 import bcrypt from 'bcryptjs';
@@ -185,7 +184,10 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// --- API Routes ---
+// API routes go here
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', message: 'Amdox API is running' });
+});
 
 // Auth
 app.post('/api/auth/register', async (req, res) => {
@@ -430,12 +432,18 @@ export default app;
 // --- Vite Integration ---
 async function startServer() {
   if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
+    
+    httpServer.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  } else if (!process.env.VERCEL) {
+    // Production standalone (not Vercel)
     const distPath = path.join(process.cwd(), 'dist');
     if (fs.existsSync(distPath)) {
       app.use(express.static(distPath));
@@ -443,9 +451,7 @@ async function startServer() {
         res.sendFile(path.join(distPath, 'index.html'));
       });
     }
-  }
-
-  if (!process.env.VERCEL) {
+    
     httpServer.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
