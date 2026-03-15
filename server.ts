@@ -25,7 +25,11 @@ const JWT_SECRET = process.env.JWT_SECRET || 'amdox-secret-key-2026';
 // Supabase Setup for Auth Verification
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Only create client if URL is provided to avoid crash
+const supabase = (supabaseUrl && supabaseAnonKey) 
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;
 
 // In-Memory Storage (Replacing Database)
 let users: any[] = [];
@@ -145,29 +149,35 @@ const authenticateToken = async (req: any, res: any, next: any) => {
   if (!token) return res.sendStatus(401);
 
   // Try Supabase Auth first
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-  
-  if (user && !error) {
-    let localUser = users.find(u => u.email === user.email);
-    
-    if (!localUser) {
-      const name = user.user_metadata.name || user.email?.split('@')[0] || 'User';
-      const role = user.user_metadata.role || 'Viewer';
-      const avatar = user.user_metadata.avatar;
+  if (supabase) {
+    try {
+      const { data: { user }, error } = await supabase.auth.getUser(token);
       
-      localUser = {
-        id: nextIds.users++,
-        name,
-        email: user.email,
-        password: 'supabase-auth',
-        role,
-        avatar
-      };
-      users.push(localUser);
+      if (user && !error) {
+        let localUser = users.find(u => u.email === user.email);
+        
+        if (!localUser) {
+          const name = user.user_metadata.name || user.email?.split('@')[0] || 'User';
+          const role = user.user_metadata.role || 'Viewer';
+          const avatar = user.user_metadata.avatar;
+          
+          localUser = {
+            id: nextIds.users++,
+            name,
+            email: user.email,
+            password: 'supabase-auth',
+            role,
+            avatar
+          };
+          users.push(localUser);
+        }
+        
+        req.user = { id: localUser.id, email: localUser.email, role: localUser.role, name: localUser.name };
+        return next();
+      }
+    } catch (err) {
+      console.error('Supabase auth error:', err);
     }
-    
-    req.user = { id: localUser.id, email: localUser.email, role: localUser.role, name: localUser.name };
-    return next();
   }
 
   jwt.verify(token, JWT_SECRET, (err: any, decoded: any) => {

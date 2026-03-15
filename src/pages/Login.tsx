@@ -1,28 +1,29 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { LogIn, Mail, Lock, Loader2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { authService } from '../services/auth';
+import { useAuthStore } from '../store';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [resending, setResending] = useState(false);
   const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
+  const { setAuth } = useAuthStore();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
-    setMessage('');
     try {
-      if (!supabase) {
-        throw new Error('Supabase is not configured. Please add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your environment variables.');
+      const data = await authService.login(email, password);
+      
+      // If using local auth, we get user and token directly
+      if (data.user && data.token) {
+        setAuth(data.user, data.token);
       }
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      
       navigate('/');
     } catch (err: any) {
       setError(err.message || 'Login failed');
@@ -43,12 +44,6 @@ export default function Login() {
           {error && (
             <div className="mb-6 p-4 bg-critical/10 border border-critical/20 text-critical text-sm rounded-xl">
               {error}
-            </div>
-          )}
-
-          {message && (
-            <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm rounded-xl">
-              {message}
             </div>
           )}
 

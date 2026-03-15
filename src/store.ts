@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { supabase } from './lib/supabase';
+import { authService } from './services/auth';
 
 interface User {
   id: string | number;
@@ -32,9 +32,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ user, token });
   },
   logout: async () => {
-    await supabase.auth.signOut();
-    localStorage.removeItem('user');
-    localStorage.removeItem('token');
+    await authService.logout();
     set({ user: null, token: null });
   },
   setInitialized: (initialized) => set({ initialized }),

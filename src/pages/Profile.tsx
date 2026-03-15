@@ -8,7 +8,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { useAuthStore } from '../store';
-import { supabase } from '../lib/supabase';
+import { authService } from '../services/auth';
 
 export default function Profile() {
   const { user, setAuth } = useAuthStore();
@@ -24,11 +24,10 @@ export default function Profile() {
     setLoading(true);
     setSuccess(false);
     try {
-      const { error } = await supabase.auth.updateUser({
-        data: { name: formData.name },
+      await authService.updateProfile({
+        name: formData.name,
         email: formData.email !== user?.email ? formData.email : undefined
       });
-      if (error) throw error;
       
       setAuth({ ...user!, ...formData }, localStorage.getItem('token'));
       setSuccess(true);

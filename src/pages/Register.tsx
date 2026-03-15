@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { UserPlus, Mail, Lock, User, Shield, Loader2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { authService } from '../services/auth';
 
 export default function Register() {
   const [formData, setFormData] = useState({
@@ -19,21 +19,8 @@ export default function Register() {
     setLoading(true);
     setError('');
     try {
-      if (!supabase) {
-        throw new Error('Supabase is not configured. Please add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your environment variables.');
-      }
-      const { error } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: {
-            name: formData.name,
-            role: formData.role
-          }
-        }
-      });
-      if (error) throw error;
-      alert('Registration successful! Please check your email for verification.');
+      await authService.register(formData.name, formData.email, formData.password, formData.role);
+      alert('Registration successful! You can now sign in.');
       navigate('/login');
     } catch (err: any) {
       setError(err.message || 'Registration failed');
