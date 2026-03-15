@@ -8,8 +8,102 @@ import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+import Database from 'better-sqlite3';
 
 dotenv.config();
+
+const db = new Database('amdox.db');
+
+// Initialize Database Schema
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    role TEXT DEFAULT 'Viewer',
+    avatar TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    owner_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(owner_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT DEFAULT 'To Do',
+    priority TEXT DEFAULT 'Medium',
+    assignee_id INTEGER,
+    due_date TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(project_id) REFERENCES projects(id),
+    FOREIGN KEY(assignee_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER,
+    user_id INTEGER,
+    content TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(task_id) REFERENCES tasks(id),
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    content TEXT NOT NULL,
+    is_read INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER,
+    filename TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    mimetype TEXT,
+    size INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(task_id) REFERENCES tasks(id)
+  );
+`);
+
+// Seed Initial Data if empty
+const seedData = async () => {
+  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as any;
+  if (userCount.count === 0) {
+    const adminPass = await bcrypt.hash('admin123', 10);
+    const userPass = await bcrypt.hash('user123', 10);
+    
+    const insertUser = db.prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)');
+    const adminId = insertUser.run('System Admin', 'admin@amdox.com', adminPass, 'Admin').lastInsertRowid;
+    const sarahId = insertUser.run('Sarah Chen', 'sarah@amdox.com', userPass, 'Editor').lastInsertRowid;
+
+    const insertProject = db.prepare('INSERT INTO projects (name, description, owner_id) VALUES (?, ?, ?)');
+    const proj1Id = insertProject.run('Global Expansion', 'Strategic planning for new market entries in 2026.', adminId).lastInsertRowid;
+    const proj2Id = insertProject.run('Product Redesign', 'Complete overhaul of the core user interface and experience.', sarahId).lastInsertRowid;
+
+    const insertTask = db.prepare('INSERT INTO tasks (project_id, title, description, status, priority, assignee_id) VALUES (?, ?, ?, ?, ?, ?)');
+    insertTask.run(proj1Id, 'Market Analysis', 'Research competitors in the SEA region.', 'Done', 'High', adminId);
+    insertTask.run(proj1Id, 'Legal Compliance', 'Review local regulations for data privacy.', 'In Progress', 'Critical', sarahId);
+    insertTask.run(proj2Id, 'User Interviews', 'Gather feedback from top 50 power users.', 'To Do', 'Medium', sarahId);
+
+    const insertNotif = db.prepare('INSERT INTO notifications (user_id, content) VALUES (?, ?)');
+    insertNotif.run(sarahId, 'Welcome to Amdox! You have been assigned to the Product Redesign project.');
+  }
+};
+seedData();
 
 const app = express();
 const httpServer = createServer(app);
@@ -30,107 +124,6 @@ const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
 const supabase = (supabaseUrl && supabaseAnonKey) 
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
-
-// In-Memory Storage (Replacing Database)
-let users: any[] = [];
-let projects: any[] = [];
-let tasks: any[] = [];
-let comments: any[] = [];
-let notifications: any[] = [];
-let attachments: any[] = [];
-
-let nextIds = {
-  users: 1,
-  projects: 1,
-  tasks: 1,
-  comments: 1,
-  notifications: 1,
-  attachments: 1
-};
-
-// Seed Initial Data
-const seedData = async () => {
-  const adminPass = await bcrypt.hash('admin123', 10);
-  const userPass = await bcrypt.hash('user123', 10);
-  
-  const admin = {
-    id: nextIds.users++,
-    name: 'System Admin',
-    email: 'admin@amdox.com',
-    password: adminPass,
-    role: 'Admin'
-  };
-  users.push(admin);
-  
-  const sarah = {
-    id: nextIds.users++,
-    name: 'Sarah Chen',
-    email: 'sarah@amdox.com',
-    password: userPass,
-    role: 'Editor'
-  };
-  users.push(sarah);
-
-  const proj1 = {
-    id: nextIds.projects++,
-    name: 'Global Expansion',
-    description: 'Strategic planning for new market entries in 2026.',
-    owner_id: admin.id,
-    created_at: new Date().toISOString()
-  };
-  projects.push(proj1);
-  
-  const proj2 = {
-    id: nextIds.projects++,
-    name: 'Product Redesign',
-    description: 'Complete overhaul of the core user interface and experience.',
-    owner_id: sarah.id,
-    created_at: new Date().toISOString()
-  };
-  projects.push(proj2);
-
-  tasks.push({
-    id: nextIds.tasks++,
-    project_id: proj1.id,
-    title: 'Market Analysis',
-    description: 'Research competitors in the SEA region.',
-    status: 'Done',
-    priority: 'High',
-    assignee_id: admin.id,
-    created_at: new Date().toISOString()
-  });
-  
-  tasks.push({
-    id: nextIds.tasks++,
-    project_id: proj1.id,
-    title: 'Legal Compliance',
-    description: 'Review local regulations for data privacy.',
-    status: 'In Progress',
-    priority: 'Critical',
-    assignee_id: sarah.id,
-    created_at: new Date().toISOString()
-  });
-  
-  tasks.push({
-    id: nextIds.tasks++,
-    project_id: proj2.id,
-    title: 'User Interviews',
-    description: 'Gather feedback from top 50 power users.',
-    status: 'To Do',
-    priority: 'Medium',
-    assignee_id: sarah.id,
-    created_at: new Date().toISOString()
-  });
-
-  notifications.push({
-    id: nextIds.notifications++,
-    user_id: sarah.id,
-    content: 'Welcome to Amdox! You have been assigned to the Product Redesign project.',
-    is_read: 0,
-    created_at: new Date().toISOString()
-  });
-};
-seedData();
 
 // Middleware
 app.use(express.json());
@@ -154,22 +147,17 @@ const authenticateToken = async (req: any, res: any, next: any) => {
       const { data: { user }, error } = await supabase.auth.getUser(token);
       
       if (user && !error) {
-        let localUser = users.find(u => u.email === user.email);
+        let localUser = db.prepare('SELECT * FROM users WHERE email = ?').get(user.email) as any;
         
         if (!localUser) {
           const name = user.user_metadata.name || user.email?.split('@')[0] || 'User';
           const role = user.user_metadata.role || 'Viewer';
           const avatar = user.user_metadata.avatar;
           
-          localUser = {
-            id: nextIds.users++,
-            name,
-            email: user.email,
-            password: 'supabase-auth',
-            role,
-            avatar
-          };
-          users.push(localUser);
+          const id = db.prepare('INSERT INTO users (name, email, password, role, avatar) VALUES (?, ?, ?, ?, ?)')
+            .run(name, user.email, 'supabase-auth', role, avatar).lastInsertRowid;
+          
+          localUser = { id, name, email: user.email, role, avatar };
         }
         
         req.user = { id: localUser.id, email: localUser.email, role: localUser.role, name: localUser.name };
@@ -204,15 +192,9 @@ app.post('/api/auth/register', async (req, res) => {
   const { name, email, password, role } = req.body;
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = {
-      id: nextIds.users++,
-      name,
-      email,
-      password: hashedPassword,
-      role: role || 'Viewer'
-    };
-    users.push(newUser);
-    res.status(201).json({ id: newUser.id });
+    const result = db.prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)')
+      .run(name, email, hashedPassword, role || 'Viewer');
+    res.status(201).json({ id: result.lastInsertRowid });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
@@ -220,7 +202,7 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
-  const user = users.find(u => u.email === email);
+  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
   if (!user || !(await bcrypt.compare(password, user.password))) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
@@ -229,163 +211,143 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.get('/api/auth/me', authenticateToken, (req: any, res) => {
-  const user = users.find(u => u.id === req.user.id);
+  const user = db.prepare('SELECT id, name, email, role, avatar FROM users WHERE id = ?').get(req.user.id) as any;
   if (!user) return res.sendStatus(404);
-  const { password, ...safeUser } = user;
-  res.json(safeUser);
+  res.json(user);
 });
 
 // Users
 app.get('/api/users', authenticateToken, (req, res) => {
-  const safeUsers = users.map(({ password, ...u }) => u);
-  res.json(safeUsers);
+  const allUsers = db.prepare('SELECT id, name, email, role, avatar FROM users').all();
+  res.json(allUsers);
 });
 
 // Projects
 app.get('/api/projects', authenticateToken, (req, res) => {
-  const sortedProjects = [...projects].sort((a, b) => 
-    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
-  res.json(sortedProjects);
+  const allProjects = db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all();
+  res.json(allProjects);
 });
 
 app.post('/api/projects', authenticateToken, (req: any, res) => {
   const { name, description } = req.body;
-  const newProject = {
-    id: nextIds.projects++,
-    name,
-    description,
-    owner_id: req.user.id,
-    created_at: new Date().toISOString()
-  };
-  projects.push(newProject);
+  const result = db.prepare('INSERT INTO projects (name, description, owner_id) VALUES (?, ?, ?)')
+    .run(name, description, req.user.id);
+  
+  const newProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(result.lastInsertRowid);
   res.status(201).json(newProject);
 });
 
 // Tasks
 app.get('/api/tasks', authenticateToken, (req, res) => {
   const { projectId } = req.query;
-  let filteredTasks = tasks.map(t => {
-    const assignee = users.find(u => u.id === t.assignee_id);
-    return { ...t, assignee_name: assignee ? assignee.name : null };
-  });
-  
+  let query = `
+    SELECT t.*, u.name as assignee_name 
+    FROM tasks t 
+    LEFT JOIN users u ON t.assignee_id = u.id
+  `;
+  let params: any[] = [];
+
   if (projectId) {
-    filteredTasks = filteredTasks.filter(t => t.project_id === Number(projectId));
+    query += ' WHERE t.project_id = ?';
+    params.push(Number(projectId));
   }
+
+  query += ' ORDER BY t.created_at DESC';
   
-  filteredTasks.sort((a, b) => 
-    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
-  
+  const filteredTasks = db.prepare(query).all(...params);
   res.json(filteredTasks);
 });
 
 app.post('/api/tasks', authenticateToken, (req, res) => {
   const { project_id, title, description, status, priority, assignee_id, due_date } = req.body;
-  const newTask = {
-    id: nextIds.tasks++,
-    project_id: Number(project_id),
+  const result = db.prepare(`
+    INSERT INTO tasks (project_id, title, description, status, priority, assignee_id, due_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    Number(project_id),
     title,
     description,
-    status: status || 'To Do',
-    priority: priority || 'Medium',
-    assignee_id: assignee_id ? Number(assignee_id) : null,
-    due_date,
-    created_at: new Date().toISOString()
-  };
-  tasks.push(newTask);
+    status || 'To Do',
+    priority || 'Medium',
+    assignee_id ? Number(assignee_id) : null,
+    due_date
+  );
   
-  if (newTask.assignee_id) {
-    const newNotif = {
-      id: nextIds.notifications++,
-      user_id: newTask.assignee_id,
-      content: `You have been assigned to task: ${title}`,
-      is_read: 0,
-      created_at: new Date().toISOString()
-    };
-    notifications.push(newNotif);
-    io.to(`user_${newTask.assignee_id}`).emit('notification', { content: newNotif.content });
+  const taskId = result.lastInsertRowid;
+
+  if (assignee_id) {
+    const content = `You have been assigned to task: ${title}`;
+    db.prepare('INSERT INTO notifications (user_id, content) VALUES (?, ?)')
+      .run(Number(assignee_id), content);
+    
+    io.to(`user_${assignee_id}`).emit('notification', { content });
   }
 
-  res.status(201).json({ id: newTask.id });
+  res.status(201).json({ id: taskId });
 });
 
 app.patch('/api/tasks/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
   const updates = req.body;
-  const taskIndex = tasks.findIndex(t => t.id === Number(id));
   
-  if (taskIndex === -1) return res.sendStatus(404);
+  const fields = Object.keys(updates).map(key => `${key} = ?`).join(', ');
+  const params = [...Object.values(updates), Number(id)];
   
-  tasks[taskIndex] = { ...tasks[taskIndex], ...updates };
+  db.prepare(`UPDATE tasks SET ${fields} WHERE id = ?`).run(...params);
   
   io.emit('task_updated', { id: Number(id), ...updates });
   res.json({ success: true });
 });
 
 app.delete('/api/tasks/:id', authenticateToken, (req, res) => {
-  tasks = tasks.filter(t => t.id !== Number(req.params.id));
+  db.prepare('DELETE FROM tasks WHERE id = ?').run(Number(req.params.id));
   res.json({ success: true });
 });
 
 // Comments
 app.get('/api/tasks/:id/comments', authenticateToken, (req, res) => {
-  const taskComments = comments
-    .filter(c => c.task_id === Number(req.params.id))
-    .map(c => {
-      const user = users.find(u => u.id === c.user_id);
-      return { ...c, user_name: user ? user.name : 'Unknown', user_avatar: user ? user.avatar : null };
-    })
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const taskComments = db.prepare(`
+    SELECT c.*, u.name as user_name, u.avatar as user_avatar
+    FROM comments c
+    JOIN users u ON c.user_id = u.id
+    WHERE c.task_id = ?
+    ORDER BY c.created_at ASC
+  `).all(Number(req.params.id));
   res.json(taskComments);
 });
 
 app.post('/api/tasks/:id/comments', authenticateToken, (req: any, res) => {
   const { content } = req.body;
-  const newComment = {
-    id: nextIds.comments++,
-    task_id: Number(req.params.id),
-    user_id: req.user.id,
-    content,
-    created_at: new Date().toISOString()
-  };
-  comments.push(newComment);
+  const result = db.prepare('INSERT INTO comments (task_id, user_id, content) VALUES (?, ?, ?)')
+    .run(Number(req.params.id), req.user.id, content);
   
-  const user = users.find(u => u.id === newComment.user_id);
-  const commentWithUser = { ...newComment, user_name: user ? user.name : 'Unknown', user_avatar: user ? user.avatar : null };
+  const comment = db.prepare(`
+    SELECT c.*, u.name as user_name, u.avatar as user_avatar
+    FROM comments c
+    JOIN users u ON c.user_id = u.id
+    WHERE c.id = ?
+  `).get(result.lastInsertRowid) as any;
 
-  io.emit('new_comment', { taskId: req.params.id, comment: commentWithUser });
-  res.status(201).json(commentWithUser);
+  io.emit('new_comment', { taskId: req.params.id, comment });
+  res.status(201).json(comment);
 });
 
 // Notifications
 app.get('/api/notifications', authenticateToken, (req: any, res) => {
-  const userNotifs = notifications
-    .filter(n => n.user_id === req.user.id)
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const userNotifs = db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC')
+    .all(req.user.id);
   res.json(userNotifs);
 });
 
 app.patch('/api/notifications/:id/read', authenticateToken, (req, res) => {
-  const notif = notifications.find(n => n.id === Number(req.params.id));
-  if (notif) notif.is_read = 1;
+  db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ?').run(Number(req.params.id));
   res.json({ success: true });
 });
 
 // Reports
 app.get('/api/reports/stats', authenticateToken, (req, res) => {
-  const statusCounts: any = {};
-  const priorityCounts: any = {};
-  
-  tasks.forEach(t => {
-    statusCounts[t.status] = (statusCounts[t.status] || 0) + 1;
-    priorityCounts[t.priority] = (priorityCounts[t.priority] || 0) + 1;
-  });
-  
-  const statusStats = Object.keys(statusCounts).map(status => ({ status, count: statusCounts[status] }));
-  const priorityStats = Object.keys(priorityCounts).map(priority => ({ priority, count: priorityCounts[priority] }));
-  
+  const statusStats = db.prepare('SELECT status, COUNT(*) as count FROM tasks GROUP BY status').all();
+  const priorityStats = db.prepare('SELECT priority, COUNT(*) as count FROM tasks GROUP BY priority').all();
   res.json({ statusStats, priorityStats });
 });
 
@@ -403,37 +365,37 @@ app.post('/api/tasks/:id/attachments', authenticateToken, upload.single('file'),
   const { id } = req.params;
   const { filename, originalname, mimetype, size } = req.file;
   
-  const newAttachment = {
-    id: nextIds.attachments++,
-    task_id: Number(id),
-    filename,
-    original_name: originalname,
-    mimetype,
-    size,
-    created_at: new Date().toISOString()
-  };
-  attachments.push(newAttachment);
+  const result = db.prepare(`
+    INSERT INTO attachments (task_id, filename, original_name, mimetype, size)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(Number(id), filename, originalname, mimetype, size);
   
+  const newAttachment = db.prepare('SELECT * FROM attachments WHERE id = ?').get(result.lastInsertRowid);
   res.status(201).json(newAttachment);
 });
 
 app.get('/api/tasks/:id/attachments', authenticateToken, (req, res) => {
-  const taskAttachments = attachments.filter(a => a.task_id === Number(req.params.id));
+  const taskAttachments = db.prepare('SELECT * FROM attachments WHERE task_id = ?').all(Number(req.params.id));
   res.json(taskAttachments);
 });
 
 // Profile Update
 app.patch('/api/users/me', authenticateToken, (req: any, res) => {
   const { name, email, avatar } = req.body;
-  const userIndex = users.findIndex(u => u.id === req.user.id);
   
-  if (userIndex === -1) return res.status(404).json({ error: 'User not found' });
-
-  if (name) users[userIndex].name = name;
-  if (email) users[userIndex].email = email;
-  if (avatar) users[userIndex].avatar = avatar;
+  const updates: string[] = [];
+  const params: any[] = [];
   
-  const { password, ...safeUser } = users[userIndex];
+  if (name) { updates.push('name = ?'); params.push(name); }
+  if (email) { updates.push('email = ?'); params.push(email); }
+  if (avatar) { updates.push('avatar = ?'); params.push(avatar); }
+  
+  if (updates.length > 0) {
+    params.push(req.user.id);
+    db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+  }
+  
+  const safeUser = db.prepare('SELECT id, name, email, role, avatar FROM users WHERE id = ?').get(req.user.id);
   res.json(safeUser);
 });
 
